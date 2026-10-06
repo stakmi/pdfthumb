@@ -7,9 +7,8 @@ name: Publish to PyPI
 # Manual "Run workflow" publishes to TestPyPI instead (for dry runs).
 
 on:
-  push:
-    tags: ["v*"]
-  workflow_dispatch:
+  release:
+    types: [published]
 
 permissions:
   contents: read
