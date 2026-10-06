@@ -1,14 +1,15 @@
 name: Publish to PyPI
 
 # Release flow:
-#   1. Bump __version__ in src/pdfthumb/__init__.py and commit.
-#   2. git tag v<version> && git push origin v<version>
-#   3. Tests run -> package is built -> published to PyPI -> GitHub release created.
-# Manual "Run workflow" publishes to TestPyPI instead (for dry runs).
+#   1. On GitHub: Releases -> "Draft a new release" -> create a tag such as 0.1.2 or v0.1.2 -> Publish.
+#   2. This workflow tests and builds the package, stamps the version from the tag,
+#      publishes it to PyPI and attaches the wheel/sdist to the release.
+# Manual "Run workflow" builds the current __version__ and publishes it to TestPyPI (dry run).
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -26,14 +27,28 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install build tools
-        run: python -m pip install --upgrade build twine
-      - name: Check tag matches package version
-        if: startsWith(github.ref, 'refs/tags/v')
+        run: python -m pip install --upgrade build twine packaging
+      - name: Set package version from release tag
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
-          PKG_VERSION=$(python -c "import ast,pathlib;t=ast.parse(pathlib.Path('src/pdfthumb/__init__.py').read_text());print(next(n.value.value for n in t.body if isinstance(n,ast.Assign) and n.targets[0].id=='__version__'))")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          echo "package=$PKG_VERSION tag=$TAG_VERSION"
-          [ "$PKG_VERSION" = "$TAG_VERSION" ] || { echo "::error::Tag v$TAG_VERSION does not match __version__ $PKG_VERSION"; exit 1; }
+          VERSION="${TAG#v}"
+          python - "$VERSION" <<'PY'
+          import pathlib, re, sys
+          from packaging.version import Version, InvalidVersion
+          v = sys.argv[1]
+          try:
+              v = str(Version(v))
+          except InvalidVersion:
+              sys.exit(f"::error::Release tag '{v}' is not a valid PEP 440 version (expected e.g. 1.2.3 or v1.2.3)")
+          p = pathlib.Path("src/pdfthumb/__init__.py")
+          s, n = re.subn(r'^__version__ = ".*"$', f'__version__ = "{v}"', p.read_text(), flags=re.M)
+          if n != 1:
+              sys.exit("::error::__version__ not found in src/pdfthumb/__init__.py")
+          p.write_text(s)
+          print(f"Building version {v}")
+          PY
       - name: Build sdist and wheel
         run: python -m build
       - name: Check distributions
@@ -68,7 +83,7 @@ jobs:
           skip-existing: true
 
   publish-pypi:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -83,7 +98,7 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
 
-  github-release:
+  upload-release-assets:
     needs: publish-pypi
     runs-on: ubuntu-latest
     permissions:
@@ -93,7 +108,8 @@ jobs:
         with:
           name: dist
           path: dist/
-      - name: Create GitHub release
+      - name: Attach distributions to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber

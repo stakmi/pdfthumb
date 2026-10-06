@@ -114,19 +114,18 @@ You can also run the CLI as a module: `python -m pdfthumb ...`
 ## CI / Releasing to PyPI
 
 - `.github/workflows/ci.yml` runs the tests on every push to `main` and on every PR. It covers Python 3.9–3.13 on Linux, plus macOS and Windows.
-- `.github/workflows/publish.yml` runs when a `v*` tag is pushed. It tests and builds the package, checks it, publishes it to **PyPI**, and creates a GitHub release.
-  Running the workflow manually ("Run workflow") publishes to **TestPyPI** instead, as a dry run.
+- `.github/workflows/publish.yml` runs whenever a **GitHub Release is published**. It runs the tests, then builds the package using the
+  **release tag as the version** (`0.1.2` or `v0.1.2`), publishes it to **PyPI**, and attaches the wheel and sdist to the release.
+  Running the workflow manually ("Run workflow") publishes the current `__version__` to **TestPyPI** instead, as a dry run.
 
 One-time setup, using Trusted Publishing so no API token is stored:
 1. On https://pypi.org/manage/account/publishing/, add a *pending publisher*:
-   project `pdfthumb`, owner/repo = your GitHub repo, workflow `publish.yml`, environment `pypi`.
+   PyPI project `pdfthumb`, owner `stakmi`, repository `pdfthumb`, workflow `publish.yml`, environment `pypi`.
 2. Optionally, do the same on https://test.pypi.org with environment `testpypi`.
-3. In GitHub, go to **Settings → Environments** and create the `pypi` and `testpypi` environments. You can add required reviewers to them.
+3. Optionally, in GitHub **Settings → Environments**, add required reviewers to `pypi`. The environment is created automatically on first use.
 
 Release:
 ```bash
-# bump __version__ in src/pdfthumb/__init__.py, then:
-git commit -am "Release 0.1.1"
-git tag v0.1.1 && git push origin main v0.1.1
+gh release create 0.1.2 --generate-notes    # or use the GitHub UI: Releases → Draft a new release
 ```
-The workflow fails if the tag doesn't match `__version__`.
+The tag must be a valid version (e.g. `1.2.3`, `v1.2.3`, `1.3.0rc1`). PyPI rejects re-uploading a version that already exists, so each release needs a new tag.
